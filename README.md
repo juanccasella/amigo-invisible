@@ -11,7 +11,16 @@ Página web de un solo archivo (`index.html`) para sortear el amigo invisible de
 - No hay servidor ni base de datos: el resultado de cada persona va codificado en el `#código` de su link.
 - El organizador no ve a quién le toca cada uno, así que también puede jugar.
 - La única regla del sorteo es que nadie se regale a sí mismo.
-- Si se vuelve a sortear, los links anteriores siguen mostrando el sorteo viejo: hay que mandar los nuevos a todos.
+- Si se vuelve a sortear, los links anteriores siguen mostrando el sorteo viejo: hay que mandar los nuevos a todos. La página pide confirmación si ya se mandó algún link.
+- El sorteo queda guardado en el navegador del organizador (nombres, links y estado), así puede volver a la página más tarde.
+
+## Registro de quién abrió su link
+
+Cuando alguien toca "Ver mi amigo invisible", la página avisa a una planilla de Google del organizador. En la lista del sorteo, cada persona muestra **Sin enviar**, **Enviado, todavía no lo abrió** o **✓ Ya lo vio** con fecha y hora, y arriba un resumen ("3 de 5 ya vieron su amigo invisible"). Se actualiza solo cada 30 segundos o con el botón **Actualizar quién lo vio**.
+
+Se guarda solo quién abrió su link y cuándo, nunca a quién le regala. Instalación: [planilla/INSTALAR.md](planilla/INSTALAR.md). Si `REGISTRO_URL` está vacía, la página funciona igual pero sin registro.
+
+Para probarlo sin Google: `node tools/servidor-prueba.mjs` y abrir http://127.0.0.1:8791 (simula la planilla en memoria).
 
 ## Probarlo en la PC
 

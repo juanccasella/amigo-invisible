@@ -14,6 +14,9 @@ Instrucciones para Codex u otro agente que continúe este proyecto. Ver `README.
 - **Sorteo**: `parse()` arma la lista con un nombre por línea. `draw()` mezcla al azar hasta que nadie se tenga a sí mismo. Los nombres repetidos dan error.
 - **Código del link**: `encode()` toma `{g: quien regala, r: a quien, e: evento, m: presupuesto, f: fecha}`, lo pasa a JSON, le agrega un byte de control, lo ofusca con XOR y lo escribe en base32 en minúsculas (solo `a-z2-7`). `decode()` hace el camino inverso y rechaza códigos alterados. No es seguridad real, solo evita que se lea a simple vista.
 - **WhatsApp**: `https://wa.me/?text=...` con el mensaje armado en `message()`. Hay un botón **Copiar** de respaldo.
+- **Registro**: `REGISTRO_URL` apunta a la aplicación web de Apps Script (`planilla/Codigo.gs`). Al revelar, el participante hace `GET ?accion=visto&sorteo=<id>&nombre=<quien regala>` (`no-cors`, sin esperar respuesta). El organizador consulta `GET ?accion=estado&sorteo=<id>` cada 30 s. El código del link lleva el id del sorteo en `s`. Nunca mandar el nombre de quien recibe.
+- **Sorteo guardado**: en `localStorage` (`amigo-invisible-sorteo`) se guarda `{id, ev, items:[{g, code, enviado, visto}]}` para poder volver y ver el estado.
+- **Prueba local**: `node tools/servidor-prueba.mjs` sirve la página en http://127.0.0.1:8791 con un registro falso en memoria.
 - **Link base**: `DEFAULT_LINK` toma `location.origin + location.pathname` cuando la página está servida por http(s). Abierta como archivo local, el campo queda vacío.
 
 ## Publicación

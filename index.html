@@ -73,8 +73,12 @@ button, .btn {
 .list .who { flex: 1; min-width: 120px; font-weight: 600; }
 .list .who small { display: block; font-weight: 400; color: var(--muted); font-size: 12px; }
 .list .actions { display: flex; gap: 8px; }
-.list .actions .btn, .list .actions button { padding: 8px 12px; font-size: 14px; }
-.sent .who { color: var(--muted); }
+.list .actions .btn, .list .actions button { padding: 10px 14px; min-height: 44px; font-size: 15px; }
+.estado { display: inline-block; margin-top: 2px; font-size: 12px; font-weight: 600; border-radius: 999px; padding: 2px 8px; background: var(--bg); color: var(--muted); }
+.estado.enviado { color: var(--fg); }
+.estado.visto { background: var(--pine); color: var(--surface); }
+.resHead { display: flex; flex-direction: column; gap: 4px; }
+.summary { font-weight: 600; color: var(--pine); }
 .note { font-size: 14px; color: var(--muted); background: var(--bg); border-radius: 10px; padding: 12px; }
 
 /* Vista del participante: etiqueta de regalo */
@@ -139,9 +143,14 @@ button, .btn {
       </form>
 
       <section id="result" class="panel" hidden>
-        <h2>Listo, a mandar</h2>
-        <p class="note">Tocá <strong>WhatsApp</strong> en cada persona y elegí su chat. Cada link muestra solo a quién le regala esa persona. Si volvés a sortear, los links anteriores quedan viejos: mandá los nuevos a todos.</p>
+        <div class="resHead">
+          <h2>Listo, a mandar</h2>
+          <p id="resumen" class="summary"></p>
+        </div>
+        <p class="note">Tocá <strong>WhatsApp</strong> en cada persona y elegí su chat. Cada link muestra solo a quién le regala esa persona. El sorteo queda guardado en este celular, así que podés volver más tarde a ver quién ya abrió su link.</p>
         <ul id="lista" class="list"></ul>
+        <button type="button" id="btnActualizar" class="ghost" hidden>Actualizar quién lo vio</button>
+        <p id="estadoErr" class="hint" hidden></p>
       </section>
     </div>
   </section>
@@ -173,6 +182,10 @@ button, .btn {
 (() => {
   // Link público de la página: por defecto, la misma URL donde está publicada (sin #código).
   const DEFAULT_LINK = location.protocol.startsWith("http") ? location.origin + location.pathname : "";
+  // URL de la aplicación web de Google Apps Script (ver planilla/INSTALAR.md).
+  // Vacía = la página funciona igual, pero sin registro de quién abrió su link.
+  const REGISTRO_URL = "";
+  const GUARDADO = "amigo-invisible-sorteo";
   const KEY = "familia-amigo-invisible-2026";
   const ALPHA = "abcdefghijklmnopqrstuvwxyz234567";
   const $ = (id) => document.getElementById(id);
@@ -228,9 +241,74 @@ button, .btn {
     catch { const ta = document.createElement("textarea"); ta.value = text; document.body.appendChild(ta); ta.select(); try { document.execCommand("copy"); btn.textContent = "Copiado"; } catch { btn.textContent = "No se pudo"; } ta.remove(); }
     setTimeout(() => btn.textContent = "Copiar", 1600);
   }
+  // ---------- sorteo guardado en este dispositivo (sin a quién le toca a cada uno)
+  let sorteo = null;
+  function guardar() { try { localStorage.setItem(GUARDADO, JSON.stringify(sorteo, (k, v) => k === "li" ? undefined : v)); } catch {} }
+  function leerGuardado() { try { return JSON.parse(localStorage.getItem(GUARDADO) || "null"); } catch { return null; } }
+  function nuevoId() { const a = "abcdefghijklmnopqrstuvwxyz0123456789"; let s = ""; const r = crypto.getRandomValues(new Uint8Array(12)); r.forEach(b => s += a[b % 36]); return s; }
+  function hora(iso) { const d = new Date(iso); return d.toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit" }) + " " + d.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit", hour12: false }); }
+
+  function pintarEstado(li, item) {
+    const st = li.querySelector(".estado");
+    st.className = "estado" + (item.visto ? " visto" : item.enviado ? " enviado" : "");
+    st.textContent = item.visto ? `✓ Ya lo vio · ${hora(item.visto)}` : item.enviado ? (REGISTRO_URL ? "Enviado, todavía no lo abrió" : "Enviado") : "Sin enviar";
+  }
+  function pintarResumen() {
+    if (!REGISTRO_URL) { $("resumen").textContent = ""; return; }
+    const n = sorteo.items.filter(i => i.visto).length, t = sorteo.items.length;
+    $("resumen").textContent = n === t ? `Todos ya vieron su amigo invisible (${t} de ${t})` : `${n} de ${t} ya vieron su amigo invisible`;
+  }
+  function mostrarSorteo() {
+    const ul = $("lista"); ul.innerHTML = "";
+    sorteo.items.forEach((item) => {
+      const msg = message(item.g, item.code, sorteo.ev);
+      const li = document.createElement("li");
+      li.innerHTML = `<span class="who"><span class="nombre"></span><br><span class="estado"></span></span><span class="actions"><a class="btn wpp" target="_blank" rel="noopener">WhatsApp</a><button type="button" class="ghost">Copiar</button></span>`;
+      li.querySelector(".nombre").textContent = item.g;
+      const a = li.querySelector("a");
+      a.href = "https://wa.me/?text=" + encodeURIComponent(msg);
+      const marcar = () => { if (!item.enviado) { item.enviado = true; guardar(); pintarEstado(li, item); } };
+      a.addEventListener("click", marcar);
+      li.querySelector("button").addEventListener("click", (e) => { copy(msg, e.currentTarget); marcar(); });
+      item.li = li;
+      pintarEstado(li, item);
+      ul.appendChild(li);
+    });
+    pintarResumen();
+    $("btnActualizar").hidden = !REGISTRO_URL;
+    $("result").hidden = false;
+    consultarEstado();
+  }
+  async function consultarEstado() {
+    if (!REGISTRO_URL || !sorteo) return;
+    const err = $("estadoErr");
+    try {
+      const res = await fetch(`${REGISTRO_URL}?accion=estado&sorteo=${sorteo.id}`);
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error || "respuesta inválida");
+      data.vistos.forEach(v => { const item = sorteo.items.find(i => i.g === v.nombre); if (item) { item.visto = v.cuando; item.enviado = true; } });
+      sorteo.items.forEach(i => i.li && pintarEstado(i.li, i));
+      pintarResumen(); guardar();
+      err.hidden = true;
+    } catch (e) {
+      err.textContent = "No se pudo consultar quién abrió su link. Revisá la conexión y tocá Actualizar.";
+      err.hidden = false;
+    }
+  }
+
   function showOrg() {
     $("org").hidden = false;
     $("link").value = $("link").value || DEFAULT_LINK;
+    const previo = leerGuardado();
+    if (previo && previo.id && Array.isArray(previo.items)) {
+      sorteo = previo;
+      $("evento").value = sorteo.ev.e; $("monto").value = sorteo.ev.m; $("fecha").value = sorteo.ev.f;
+      $("nombres").value = sorteo.items.map(i => i.g).join("\n");
+      mostrarSorteo();
+    }
+    $("btnActualizar").addEventListener("click", consultarEstado);
+    setInterval(() => { if (!document.hidden) consultarEstado(); }, 30000);
+    let confirmarNuevo = false;
     $("form").addEventListener("submit", (e) => {
       e.preventDefault();
       const err = $("formErr"); err.hidden = true;
@@ -240,23 +318,18 @@ button, .btn {
       if (people.length < 3) return fail("Hacen falta al menos 3 personas.");
       if (dup) return fail(`"${dup}" está dos veces. Diferencialos (ej. "${dup} G." y "${dup} P.").`);
       if (!/^https?:\/\//.test(getLink())) return fail("Pegá el link de esta página (empieza con https://).");
+      if (sorteo && sorteo.items.some(i => i.enviado) && !confirmarNuevo) {
+        confirmarNuevo = true;
+        return fail("Ya hay un sorteo con links enviados. Si sorteás de nuevo, esos links quedan viejos y hay que mandarle el nuevo a todos. Tocá Sortear otra vez para confirmar.");
+      }
+      confirmarNuevo = false;
       const pairs = draw(people);
       if (!pairs) return fail("No se pudo sortear. Probá de nuevo.");
       const ev = { e: $("evento").value.trim() || "amigo invisible", m: $("monto").value.trim(), f: $("fecha").value.trim() };
-      const ul = $("lista"); ul.innerHTML = "";
-      pairs.forEach(([g, r]) => {
-        const code = encode({ g, r, ...ev });
-        const msg = message(g, code, ev);
-        const li = document.createElement("li");
-        li.innerHTML = `<span class="who"></span><span class="actions"><a class="btn wpp" target="_blank" rel="noopener">WhatsApp</a><button type="button" class="ghost">Copiar</button></span>`;
-        li.querySelector(".who").textContent = g;
-        const a = li.querySelector("a");
-        a.href = "https://wa.me/?text=" + encodeURIComponent(msg);
-        a.addEventListener("click", () => { li.classList.add("sent"); const s = li.querySelector(".who"); if (!s.querySelector("small")) { const sm = document.createElement("small"); sm.textContent = "enviado"; s.appendChild(sm); } });
-        li.querySelector("button").addEventListener("click", (e) => copy(msg, e.currentTarget));
-        ul.appendChild(li);
-      });
-      $("result").hidden = false;
+      const id = nuevoId();
+      sorteo = { id, ev, items: pairs.map(([g, r]) => ({ g, code: encode({ g, r, s: id, ...ev }), enviado: false, visto: null })) };
+      guardar();
+      mostrarSorteo();
       $("result").scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
     });
   }
@@ -271,7 +344,11 @@ button, .btn {
     [d.m && `Presupuesto: ${d.m}`, d.f && `Intercambio: ${d.f}`].filter(Boolean).forEach(t => { const c = document.createElement("span"); c.className = "chip"; c.textContent = t; facts.appendChild(c); });
     const btn = $("btnVer"), r = $("pRecibe");
     btn.hidden = false; r.hidden = true; $("pIntro").textContent = "Tocá el botón para ver a quién le tenés que regalar.";
-    btn.onclick = () => { btn.hidden = true; $("pIntro").textContent = "Te toca regalarle a"; r.textContent = d.r; r.hidden = false; r.classList.add("show"); };
+    btn.onclick = () => {
+      btn.hidden = true; $("pIntro").textContent = "Te toca regalarle a"; r.textContent = d.r; r.hidden = false; r.classList.add("show");
+      // Avisa al organizador que esta persona ya vio su amigo invisible (solo el nombre de quien abre, nunca a quién le toca).
+      if (REGISTRO_URL && d.s) fetch(`${REGISTRO_URL}?accion=visto&sorteo=${encodeURIComponent(d.s)}&nombre=${encodeURIComponent(d.g)}`, { mode: "no-cors" }).catch(() => {});
+    };
   }
   function tryCode(raw) {
     const code = String(raw).split("#").pop().trim();
